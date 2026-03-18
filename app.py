@@ -1,6 +1,3 @@
-Here's a complete, secure Python Streamlit web application with login system and Excel merging functionality:
-
-```python
 import streamlit as st
 import pandas as pd
 import io
@@ -236,58 +233,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
-
-## 🚀 **How to Run**
-
-1. **Install dependencies:**
-```bash
-pip install streamlit pandas openpyxl
-```
-
-2. **Save the code** as `excel_merger.py`
-
-3. **Run the app:**
-```bash
-streamlit run excel_merger.py
-```
-
-## 🔐 **Security Features**
-
-- ✅ **Password hashing** with SHA-256
-- ✅ **Session state management** 
-- ✅ **Secure credential storage**
-- ✅ **Logout functionality**
-- ✅ **No credentials exposed in code**
-
-## ⚙️ **Configuration**
-
-**Change credentials easily:**
-```python
-USERNAME = "your_username"
-PASSWORD = "your_password"
-```
-
-## ✨ **Features**
-
-1. **Professional UI** with icons and clean layout
-2. **Multiple file upload** support
-3. **Smart column detection** for region mapping
-4. **Exact column order** as specified
-5. **Default values** (العدد = 1)
-6. **Preview table** before download
-7. **Error handling** for invalid files
-8. **Excel download** with proper formatting
-
-## 📋 **Column Mapping Summary**
-
-| Target Column     | Source Column(s)                  |
-|-------------------|-----------------------------------|
-| اسم الزبون       | الاسم                            |
-| هاتف الزبون      | رقم الهاتف                       |
-| المحافظة         | المحافظه                         |
-| المنطقة          | المنطقه واقرب نقطة داله / نقطه داله / المنطقه |
-
-**Empty columns added:** رقم الوصل, هاتف الزبون 2, المبلغ الكلي, نوع البضاعة, الملاحظات
-
-The app is production-ready with a secure login system and professional appearance! 🎉
