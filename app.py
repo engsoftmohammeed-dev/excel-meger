@@ -2,160 +2,121 @@ import streamlit as st
 import pandas as pd
 import io
 
-# =========================================================
-# قاعدة بيانات المشتركين (هنا تخصص كل زبون)
-# =========================================================
+# ==========================================
+# 1. إعدادات المنصة وقاعدة بيانات العملاء
+# ==========================================
+st.set_page_config(page_title="إدارة بيانات العملاء", layout="wide")
+
 CLIENTS = {
-    "admin": {
-        "password": "123",
-        "name": "إدارة المنصة الموحدة",
-        "logo": "https://cdn-icons-png.flaticon.com/512/906/906343.png",
-        "order_prefix": "ADMIN-",
-        "theme_color": "#000000"
-    },
-    "shop_noor": {
-        "password": "noor",
-        "name": "محل نور للأزياء",
-        "logo": "https://cdn-icons-png.flaticon.com/512/3081/3081559.png", # ضع رابط لوغو المحل هنا
-        "order_prefix": "NR-",
-        "theme_color": "#FF4B4B"
-    },
-    "iraq_store": {
-        "password": "iraq",
-        "name": "إيراق ستور للموبايلات",
-        "logo": "https://cdn-icons-png.flaticon.com/512/2504/2504814.png",
-        "order_prefix": "IQ-",
-        "theme_color": "#1f77b4"
-    }
+    "admin": {"pw": "admin123", "name": "إدارة المنصة", "role": "super_admin"},
+    "shop_759": {"pw": "759", "name": "نيرمن للتسوق", "logo": "🛒", "prefix": "NR-", "active": True},
 }
 
-# =========================================================
-# وظائف النظام
-# =========================================================
+# تخصيص المظهر (CSS) ليشبه الصور
+st.markdown("""
+    <style>
+    .stApp { background-color: #f4f7f6; }
+    .metric-card {
+        background-color: white; padding: 20px; border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05); text-align: center;
+    }
+    .stButton>button { border-radius: 20px; width: 100%; }
+    .main-header { color: #2c3e50; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
 
-def process_and_merge(files, prod_name, prod_price, client_info):
-    all_dfs = []
-    for file in files:
-        df = pd.read_excel(file)
-        all_dfs.append(df)
-    
-    combined_df = pd.concat(all_dfs, ignore_index=True)
-    final_cols = ['رقم الوصل', 'اسم الزبون', 'هاتف الزبون', 'هاتف الزبون 2', 
-                  'المحافظة', 'المنطقة', 'المبلغ الكلي', 'نوع البضاعة', 'العدد', 'الملاحظات']
-    
-    res = pd.DataFrame(columns=final_cols)
-    res['اسم الزبون'] = combined_df['الاسم'].str.strip() if 'الاسم' in combined_df.columns else ""
-    res['هاتف الزبون'] = combined_df['رقم الهاتف'].astype(str).str.strip() if 'رقم الهاتف' in combined_df.columns else ""
-    res['المحافظة'] = combined_df['المحافظه'] if 'المحافظه' in combined_df.columns else (combined_df['المحافظة'] if 'المحافظة' in combined_df.columns else "غير محدد")
-    
-    for col in ['المنطقه واقرب نقطة داله', 'نقطه داله', 'المنطقه']:
-        if col in combined_df.columns:
-            res['المنطقة'] = combined_df[col]
-            break
-
-    res['العدد'] = combined_df['العدد'] if 'العدد' in combined_df.columns else 1
-    res['نوع البضاعة'] = prod_name
-    res['المبلغ الكلي'] = prod_price
-    
-    # حذف التكرارات والوهمي
-    res = res[~res['اسم الزبون'].str.contains('تست|تجربة|test', case=False, na=False)]
-    res.drop_duplicates(subset=['اسم الزبون', 'هاتف الزبون'], keep='first', inplace=True)
-    
-    # توليد رقم الوصل مع الرمز الخاص بالزبون
-    res.reset_index(drop=True, inplace=True)
-    res['رقم الوصل'] = [f"{client_info['order_prefix']}{i+1001}" for i in res.index]
-    
-    return res
-
-# =========================================================
-# واجهة المستخدم (UI)
-# =========================================================
-
+# ==========================================
+# 2. نظام الدخول والتحكم
+# ==========================================
 if 'auth' not in st.session_state:
     st.session_state.auth = False
-    st.session_state.client_id = ""
+    st.session_state.user = ""
 
 if not st.session_state.auth:
-    st.set_page_config(page_title="منصة إدارة الطلبات", layout="centered")
-    st.image("https://cdn-icons-png.flaticon.com/512/2897/2897832.png", width=100)
-    st.title("مرحباً بك في المنصة الموحدة")
-    st.subheader("يرجى تسجيل الدخول للوصول إلى أدواتك")
-    
-    user_input = st.text_input("اسم المستخدم")
-    pass_input = st.text_input("كلمة المرور", type="password")
-    
-    if st.button("دخول للمنصة", use_container_width=True, type="primary"):
-        if user_input in CLIENTS and CLIENTS[user_input]['password'] == pass_input:
-            st.session_state.auth = True
-            st.session_state.client_id = user_input
-            st.rerun()
-        else:
-            st.error("بيانات الدخول غير صحيحة")
-
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        st.image("https://cdn-icons-png.flaticon.com/512/2897/2897832.png", width=80)
+        st.header("تسجيل الدخول للمنصة")
+        u = st.text_input("اسم المستخدم")
+        p = st.text_input("كلمة المرور", type="password")
+        if st.button("دخول"):
+            if u in CLIENTS and CLIENTS[u]['pw'] == p:
+                st.session_state.auth = True
+                st.session_state.user = u
+                st.rerun()
+            else: st.error("خطأ في البيانات")
 else:
-    # الحصول على معلومات الزبون الحالي
-    client = CLIENTS[st.session_state.client_id]
-    
-    st.set_page_config(page_title=client['name'], layout="wide")
-    
-    # الهيدر المخصص للزبون
-    col_logo, col_title = st.columns([1, 4])
-    with col_logo:
-        st.image(client['logo'], width=120)
-    with col_title:
-        st.title(client['name'])
-        st.write(f"نظام دمج ومعالجة الطلبات - كود العميل: `{client['order_prefix']}`")
+    user_id = st.session_state.user
+    user_data = CLIENTS[user_id]
 
-    with st.sidebar:
-        st.image(client['logo'], width=100)
-        st.write(f"المستخدم: **{st.session_state.client_id}**")
-        st.divider()
-        if st.button("تسجيل الخروج", use_container_width=True):
-            st.session_state.auth = False
-            st.rerun()
-
-    # قسم العمل
-    st.markdown(f"---")
-    with st.container():
-        c1, c2 = st.columns(2)
-        with c1:
-            prod = st.text_input("📦 نوع البضاعة الحالية")
-        with c2:
-            price = st.number_input("💰 السعر الكلي للقطعة", value=25000)
-
-    files = st.file_uploader("ارفع ملفات الإكسل الخاصة بك", type=['xlsx'], accept_multiple_files=True)
-
-    b1, b2 = st.columns(2)
-    if b1.button("🔄 بدء المعالجة والدمج", use_container_width=True, type="primary"):
-        if files:
-            st.session_state.data = process_and_merge(files, prod, price, client)
-            st.success(f"تم بنجاح! تم استخدام رمز الوصل: {client['order_prefix']}")
-        else:
-            st.error("يرجى رفع الملفات")
-    
-    if b2.button("🗑️ مسح الجلسة", use_container_width=True):
-        st.session_state.data = None
-        st.rerun()
-
-    if 'data' in st.session_state and st.session_state.data is not None:
-        df = st.session_state.data
-        st.divider()
+    # ==========================================
+    # 3. داشبورد "الآدمن" (لتحكمك الشخصي بالعملاء)
+    # ==========================================
+    if user_data.get('role') == 'super_admin':
+        st.sidebar.title("🛠️ لوحة التحكم")
+        choice = st.sidebar.radio("التوجه", ["إدارة العملاء", "الإحصائيات العامة"])
         
-        # إحصائيات مخصصة
-        s1, s2, s3 = st.columns(3)
-        s1.metric("عدد الطلبات الحقيقية", len(df))
-        s2.metric("إجمالي مبلغ الشحنة", f"{len(df)*price:,} د.ع")
-        s3.metric("رمز التتبع", client['order_prefix'])
+        if choice == "إدارة العملاء":
+            st.title("👥 إدارة حسابات العملاء")
+            for cid, data in CLIENTS.items():
+                if cid != 'admin':
+                    col_a, col_b, col_c = st.columns([2,1,1])
+                    col_a.write(f"**{data['name']}** (ID: {cid})")
+                    status = "نشط ✅" if data['active'] else "متوقف ❌"
+                    col_b.write(f"الحالة: {status}")
+                    if col_c.button(f"تعديل الحالة {cid}"):
+                        CLIENTS[cid]['active'] = not CLIENTS[cid]['active']
+                        st.rerun()
 
-        st.dataframe(df, use_container_width=True)
+    # ==========================================
+    # 4. داشبورد "العميل" (مثل نيرمن للتسوق)
+    # ==========================================
+    else:
+        # السايد بار
+        with st.sidebar:
+            st.markdown(f"## {user_data['logo']} {user_data['name']}")
+            st.write(f"إدارة بيانات العملاء من TikTok")
+            st.divider()
+            if st.button("🚪 تسجيل الخروج"):
+                st.session_state.auth = False
+                st.rerun()
+
+        # الجزء العلوي (الإحصائيات)
+        st.markdown(f"<h1 class='main-header'>{user_data['name']}</h1>", unsafe_allow_html=True)
         
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False)
-        
-        st.download_button(
-            label=f"📥 تحميل كشف {client['name']}",
-            data=output.getvalue(),
-            file_name=f"{client['name']}_orders.xlsx",
-            use_container_width=True
-        )
+        m1, m2, m3 = st.columns(3)
+        with m1: st.markdown("<div class='metric-card'><h3>إجمالي البيانات</h3><h2>759</h2></div>", unsafe_allow_html=True)
+        with m2: st.markdown("<div class='metric-card'><h3>عملاء مكررين</h3><h2>12</h2></div>", unsafe_allow_html=True)
+        with m3: st.markdown("<div class='metric-card'><h3>جاهز للتصدير</h3><h2>747</h2></div>", unsafe_allow_html=True)
+
+        # التبويبات (Tabs) مثل الصورة
+        tab1, tab2, tab3 = st.tabs(["📤 رفع البيانات", "📋 عرض البيانات", "📦 التصدير"])
+
+        with tab1:
+            st.subheader("Excel رفع ملف")
+            uploaded_file = st.file_uploader("اسحب وأفلت الملف هنا", type=['xlsx', 'xls'])
+            if uploaded_file:
+                st.success("تم رفع الملف بنجاح")
+
+        with tab2:
+            st.subheader("📋 قائمة بيانات العملاء")
+            # بيانات تجريبية للعرض
+            data = {
+                "الاسم": ["اريد هورن", "وليد الحلبوسي", "حسن ناصر"],
+                "المحافظة": ["حلة طهمازية", "بغداد", "ديالي"],
+                "رقم الهاتف": ["07804056226", "07710302202", "07710476496"],
+                "نوع المنتج": ["هورن بوش", "هورن بوش", "هورن بوش"],
+                "نقطة دالة": ["طريق عوني", "الطارمية", "ديالي حويش"]
+            }
+            df = pd.DataFrame(data)
+            st.dataframe(df, use_container_width=True)
+            
+            c1, c2, c3 = st.columns(3)
+            c1.button("طباعة الكل 🖨️")
+            c2.button("حذف المحدد 🗑️")
+            c3.button("تعديل السعر 💰")
+
+        with tab3:
+            st.subheader("📦 تصدير النتائج النهائية")
+            st.info("سيتم تصدير البيانات وفق الفورمة الموحدة")
+            st.button("تحميل الملف النهائي (Excel) 📥")
