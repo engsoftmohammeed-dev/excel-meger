@@ -3,35 +3,28 @@ import pandas as pd
 import io
 
 # ==========================================
-# 1. إعدادات الإدارة والاشتراك (تعدلها من هنا)
+# 1. إعدادات الإدارة والاشتراك
 # ==========================================
 ADMIN_USER = "admin"
 ADMIN_PW = "admin123"
-
 CLIENT_USER = "shop_759"
 CLIENT_PW = "759"
-
-# هذي القيمة تغيرها من هنا لتعطيل الحساب (True = شغال / False = طافي)
 IS_ACCOUNT_ACTIVE = True 
 
-# ==========================================
-# 2. المظهر (CSS)
-# ==========================================
-st.set_page_config(page_title="سيستم دمج الإكسل", layout="wide")
+st.set_page_config(page_title="منصة نيرمن للتسوق", layout="wide")
+
+# تنسيق CSS للأزرار وخانة البحث
 st.markdown("""
     <style>
-    .stApp { background-color: #f4f7f6; }
-    .stat-card {
-        background-color: white; padding: 15px; border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center;
-        border-top: 4px solid #1f77b4;
-    }
-    .stTabs [data-baseweb="tab-list"] { gap: 30px; }
+    .stApp { background-color: #f8f9fa; }
+    .stDataFrame { background-color: white; border-radius: 10px; }
+    div[data-testid="stExpander"] { background-color: white; border-radius: 10px; }
+    .search-label { font-size: 18px; font-weight: bold; color: #1f77b4; }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. منطق الدمج (بدون فلاتر - حسب الطلب)
+# 2. منطق المعالجة (بدون حذف مكرر)
 # ==========================================
 def merge_logic(files, prod_name, prod_price):
     all_dfs = []
@@ -48,36 +41,34 @@ def merge_logic(files, prod_name, prod_price):
                   'المحافظة', 'المنطقة', 'المبلغ الكلي', 'نوع البضاعة', 'العدد', 'الملاحظات']
     
     res = pd.DataFrame(columns=final_cols)
-    res['اسم الزبون'] = combined['الاسم'] if 'الاسم' in combined.columns else ""
-    res['هاتف الزبون'] = combined['رقم الهاتف'] if 'رقم الهاتف' in combined.columns else ""
-    res['المحافظة'] = combined['المحافظه'] if 'المحافظه' in combined.columns else (combined['المحافظة'] if 'المحافظة' in combined.columns else "")
+    res['اسم الزبون'] = combined['الاسم'].fillna("") if 'الاسم' in combined.columns else ""
+    res['هاتف الزبون'] = combined['رقم الهاتف'].fillna("") if 'رقم الهاتف' in combined.columns else ""
+    res['المحافظة'] = combined['المحافظه'].fillna("") if 'المحافظه' in combined.columns else (combined['المحافظة'].fillna("") if 'المحافظة' in combined.columns else "")
     
-    # دمج أعمدة المنطقة
     for col in ['المنطقه واقرب نقطة داله', 'نقطه داله', 'المنطقه']:
         if col in combined.columns:
-            res['المنطقة'] = combined[col]
+            res['المنطقة'] = combined[col].fillna("")
             break
 
     res['نوع البضاعة'] = prod_name
     res['المبلغ الكلي'] = prod_price
-    res['العدد'] = combined['العدد'] if 'العدد' in combined.columns else 1
+    res['العدد'] = combined['العدد'].fillna(1) if 'العدد' in combined.columns else 1
+    res = res.fillna("") # تنظيف أي None موجود
     
-    # ترقيم تلقائي
     res.reset_index(drop=True, inplace=True)
     res['رقم الوصل'] = res.index + 1
-    
     return res
 
 # ==========================================
-# 4. واجهة المستخدم
+# 3. واجهة المستخدم
 # ==========================================
 if 'auth' not in st.session_state: st.session_state.auth = False
 
 if not st.session_state.auth:
-    st.title("🔒 تسجيل الدخول")
+    st.title("🔒 تسجيل الدخول للمنصة")
     u = st.text_input("اسم المستخدم")
     p = st.text_input("كلمة المرور", type="password")
-    if st.button("دخول", use_container_width=True):
+    if st.button("دخول", use_container_width=True, type="primary"):
         if (u == CLIENT_USER and p == CLIENT_PW) or (u == ADMIN_USER and p == ADMIN_PW):
             st.session_state.auth = True
             st.session_state.user = u
@@ -85,58 +76,78 @@ if not st.session_state.auth:
         else: st.error("خطأ في البيانات")
 
 else:
-    # تحقق من حالة الاشتراك (إيقاف/تشغيل)
     if st.session_state.user == CLIENT_USER and not IS_ACCOUNT_ACTIVE:
-        st.error("🚫 عذراً، هذا الحساب معطل حالياً بسبب انتهاء الاشتراك. يرجى التواصل مع الإدارة.")
-        if st.button("خروج"):
-            st.session_state.auth = False
-            st.rerun()
+        st.error("🚫 الحساب معطل حالياً. يرجى التواصل مع الإدارة.")
     else:
-        # واجهة العمل
         with st.sidebar:
             st.header("⚙️ القائمة")
             st.write(f"المستخدم: {st.session_state.user}")
             if st.button("تسجيل الخروج"):
                 st.session_state.auth = False
+                st.session_state.merged_res = None
                 st.rerun()
-            st.divider()
-            if st.session_state.user == ADMIN_USER:
-                st.subheader("🛠️ إدارة النظام")
-                st.write("الاشتراك مفعل حالياً" if IS_ACCOUNT_ACTIVE else "الاشتراك معطل")
 
-        st.title(f"لوحة تحكم نيرمن للتسوق")
+        st.title(f"📊 لوحة تحكم {CLIENTS[CLIENT_USER]['name'] if st.session_state.user != ADMIN_USER else 'المدير'}")
         
-        tab1, tab2, tab3 = st.tabs(["📥 رفع البيانات", "📋 عرض البيانات", "📦 التصدير"])
+        tab1, tab2, tab3 = st.tabs(["📤 رفع البيانات", "📋 عرض وبحث البيانات", "📦 التصدير والتحميل"])
 
         with tab1:
             st.subheader("Excel رفع ملف")
             c1, c2 = st.columns(2)
             p_name = c1.text_input("نوع البضاعة", value="عام")
             p_price = c2.number_input("السعر", value=25000)
-            
             uploaded_files = st.file_uploader("ارفع الملفات هنا", type=['xlsx'], accept_multiple_files=True)
-            
             if uploaded_files:
                 st.session_state.merged_res = merge_logic(uploaded_files, p_name, p_price)
-                st.success("✅ تم استلام الملفات ومعالجتها تلقائياً!")
+                st.success("✅ تم استلام الملفات بنجاح!")
 
         with tab2:
             if 'merged_res' in st.session_state and st.session_state.merged_res is not None:
                 df = st.session_state.merged_res
-                # إحصائيات علوية
-                col_m1, col_m2 = st.columns(2)
-                col_m1.markdown(f"<div class='stat-card'>إجمالي الطلبات<br><b>{len(df)}</b></div>", unsafe_allow_html=True)
-                col_m2.markdown(f"<div class='stat-card'>المبلغ الكلي<br><b>{len(df)*p_price:,}</b></div>", unsafe_allow_html=True)
                 
-                st.write("<br>", unsafe_allow_html=True)
-                st.dataframe(df, use_container_width=True)
+                # --- خانة البحث الواضحة ---
+                st.markdown("<p class='search-label'>🔍 ابحث عن اسم أو رقم هاتف:</p>", unsafe_allow_html=True)
+                search_query = st.text_input("", placeholder="اكتب هنا للبحث...", label_visibility="collapsed")
+                
+                if search_query:
+                    filtered_df = df[df.astype(str).apply(lambda x: x.str.contains(search_query, case=False)).any(axis=1)]
+                else:
+                    filtered_df = df
+
+                # --- خانة التحديد (Data Editor) ---
+                st.subheader("📋 قائمة العملاء (يمكنك التعديل أو التحديد من هنا)")
+                edited_df = st.data_editor(
+                    filtered_df,
+                    use_container_width=True,
+                    num_rows="dynamic",
+                    column_config={"رقم الوصل": st.column_config.NumberColumn(disabled=True)}
+                )
+                st.session_state.merged_res = edited_df # حفظ التعديلات
             else:
                 st.info("البيانات ستظهر هنا بعد رفع الملفات.")
 
         with tab3:
             if 'merged_res' in st.session_state and st.session_state.merged_res is not None:
-                st.subheader("تصدير الملف الموحد")
+                st.subheader("📦 تحميل الملف الموحد بصيغة Excel")
+                st.write("اضغط على الزر أدناه لتحميل الملف جاهزاً لشركة التوصيل:")
+                
+                # تحويل البيانات إلى Excel
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     st.session_state.merged_res.to_excel(writer, index=False)
-                st.download_button("📥 تحميل الإكسل النهائي", output.getvalue(), file_name="merged.xlsx", use_container_width=True, type="primary")
+                
+                # زر تنزيل واضح وكبير
+                st.download_button(
+                    label="📥 تحميل ملف الإكسل الموحد (xlsx)",
+                    data=output.getvalue(),
+                    file_name="final_orders.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="primary"
+                )
+                
+                if st.button("🗑️ مسح كل البيانات الحالية"):
+                    st.session_state.merged_res = None
+                    st.rerun()
+            else:
+                st.error("لا توجد بيانات جاهزة للتحميل.")
