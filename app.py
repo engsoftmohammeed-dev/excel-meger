@@ -8,7 +8,7 @@ import hashlib
 # CONFIGURATION - CHANGE THESE CREDENTIALS
 # =============================================================================
 USERNAME = "bmemohammed"
-PASSWORD = "10106520001"
+PASSWORD = "1010652001"
 
 # =============================================================================
 # SECURITY FUNCTIONS
