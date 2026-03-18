@@ -1,235 +1,161 @@
 import streamlit as st
 import pandas as pd
 import io
-from typing import Dict, List, Optional
-import hashlib
 
-# =============================================================================
-# CONFIGURATION - CHANGE THESE CREDENTIALS
-# =============================================================================
-USERNAME = "bmemohammed"
-PASSWORD = "1010652001"
+# =========================================================
+# قاعدة بيانات المشتركين (هنا تخصص كل زبون)
+# =========================================================
+CLIENTS = {
+    "admin": {
+        "password": "123",
+        "name": "إدارة المنصة الموحدة",
+        "logo": "https://cdn-icons-png.flaticon.com/512/906/906343.png",
+        "order_prefix": "ADMIN-",
+        "theme_color": "#000000"
+    },
+    "shop_noor": {
+        "password": "noor",
+        "name": "محل نور للأزياء",
+        "logo": "https://cdn-icons-png.flaticon.com/512/3081/3081559.png", # ضع رابط لوغو المحل هنا
+        "order_prefix": "NR-",
+        "theme_color": "#FF4B4B"
+    },
+    "iraq_store": {
+        "password": "iraq",
+        "name": "إيراق ستور للموبايلات",
+        "logo": "https://cdn-icons-png.flaticon.com/512/2504/2504814.png",
+        "order_prefix": "IQ-",
+        "theme_color": "#1f77b4"
+    }
+}
 
-# =============================================================================
-# SECURITY FUNCTIONS
-# =============================================================================
-def hash_password(password: str) -> str:
-    """Hash password for secure storage/comparison"""
-    return hashlib.sha256(password.encode()).hexdigest()
+# =========================================================
+# وظائف النظام
+# =========================================================
 
-def check_credentials(username: str, password: str) -> bool:
-    """Verify username and password"""
-    return username == USERNAME and hash_password(password) == hash_password(PASSWORD)
-
-# =============================================================================
-# SESSION STATE MANAGEMENT
-# =============================================================================
-def initialize_session_state():
-    """Initialize session state variables"""
-    if 'authenticated' not in st.session_state:
-        st.session_state.authenticated = False
-    if 'uploaded_files' not in st.session_state:
-        st.session_state.uploaded_files = []
-    if 'merged_df' not in st.session_state:
-        st.session_state.merged_df = None
-
-# =============================================================================
-# LOGIN PAGE
-# =============================================================================
-def login_page():
-    st.title("🔐 Excel Merger - Login")
-    st.markdown("---")
+def process_and_merge(files, prod_name, prod_price, client_info):
+    all_dfs = []
+    for file in files:
+        df = pd.read_excel(file)
+        all_dfs.append(df)
     
-    with st.form("login_form"):
-        st.subheader("📝 Login Credentials")
-        username = st.text_input("👤 Username", placeholder="Enter username")
-        password = st.text_input("🔑 Password", type="password", placeholder="Enter password")
-        submit_button = st.form_submit_button("🚀 Login", use_container_width=True)
-        
-        if submit_button:
-            if check_credentials(username, password):
-                st.session_state.authenticated = True
-                st.success("✅ Login successful!")
-                st.rerun()
-            else:
-                st.error("❌ Invalid credentials! Please try again.")
-                st.session_state.authenticated = False
-
-# =============================================================================
-# MAIN APP PAGE
-# =============================================================================
-def main_app():
-    st.title("🔗 Excel Merger Tool")
-    st.markdown("---")
+    combined_df = pd.concat(all_dfs, ignore_index=True)
+    final_cols = ['رقم الوصل', 'اسم الزبون', 'هاتف الزبون', 'هاتف الزبون 2', 
+                  'المحافظة', 'المنطقة', 'المبلغ الكلي', 'نوع البضاعة', 'العدد', 'الملاحظات']
     
-    # Sidebar with logout
-    with st.sidebar:
-        st.markdown("## 👋 Welcome!")
-        if st.button("🚪 Logout", use_container_width=True, type="secondary"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
+    res = pd.DataFrame(columns=final_cols)
+    res['اسم الزبون'] = combined_df['الاسم'].str.strip() if 'الاسم' in combined_df.columns else ""
+    res['هاتف الزبون'] = combined_df['رقم الهاتف'].astype(str).str.strip() if 'رقم الهاتف' in combined_df.columns else ""
+    res['المحافظة'] = combined_df['المحافظه'] if 'المحافظه' in combined_df.columns else (combined_df['المحافظة'] if 'المحافظة' in combined_df.columns else "غير محدد")
+    
+    for col in ['المنطقه واقرب نقطة داله', 'نقطه داله', 'المنطقه']:
+        if col in combined_df.columns:
+            res['المنطقة'] = combined_df[col]
+            break
+
+    res['العدد'] = combined_df['العدد'] if 'العدد' in combined_df.columns else 1
+    res['نوع البضاعة'] = prod_name
+    res['المبلغ الكلي'] = prod_price
+    
+    # حذف التكرارات والوهمي
+    res = res[~res['اسم الزبون'].str.contains('تست|تجربة|test', case=False, na=False)]
+    res.drop_duplicates(subset=['اسم الزبون', 'هاتف الزبون'], keep='first', inplace=True)
+    
+    # توليد رقم الوصل مع الرمز الخاص بالزبون
+    res.reset_index(drop=True, inplace=True)
+    res['رقم الوصل'] = [f"{client_info['order_prefix']}{i+1001}" for i in res.index]
+    
+    return res
+
+# =========================================================
+# واجهة المستخدم (UI)
+# =========================================================
+
+if 'auth' not in st.session_state:
+    st.session_state.auth = False
+    st.session_state.client_id = ""
+
+if not st.session_state.auth:
+    st.set_page_config(page_title="منصة إدارة الطلبات", layout="centered")
+    st.image("https://cdn-icons-png.flaticon.com/512/2897/2897832.png", width=100)
+    st.title("مرحباً بك في المنصة الموحدة")
+    st.subheader("يرجى تسجيل الدخول للوصول إلى أدواتك")
+    
+    user_input = st.text_input("اسم المستخدم")
+    pass_input = st.text_input("كلمة المرور", type="password")
+    
+    if st.button("دخول للمنصة", use_container_width=True, type="primary"):
+        if user_input in CLIENTS and CLIENTS[user_input]['password'] == pass_input:
+            st.session_state.auth = True
+            st.session_state.client_id = user_input
             st.rerun()
-        st.markdown("---")
-        st.info("**Status:** ✅ Logged in")
+        else:
+            st.error("بيانات الدخول غير صحيحة")
+
+else:
+    # الحصول على معلومات الزبون الحالي
+    client = CLIENTS[st.session_state.client_id]
     
-    # File upload section
-    st.header("📁 Upload Excel Files")
-    uploaded_files = st.file_uploader(
-        "Choose Excel files",
-        type=['xlsx', 'xls'],
-        accept_multiple_files=True,
-        help="Upload multiple Excel files to merge"
-    )
+    st.set_page_config(page_title=client['name'], layout="wide")
     
-    if uploaded_files:
-        st.session_state.uploaded_files = uploaded_files
-        st.success(f"✅ Loaded {len(uploaded_files)} file(s)")
+    # الهيدر المخصص للزبون
+    col_logo, col_title = st.columns([1, 4])
+    with col_logo:
+        st.image(client['logo'], width=120)
+    with col_title:
+        st.title(client['name'])
+        st.write(f"نظام دمج ومعالجة الطلبات - كود العميل: `{client['order_prefix']}`")
+
+    with st.sidebar:
+        st.image(client['logo'], width=100)
+        st.write(f"المستخدم: **{st.session_state.client_id}**")
+        st.divider()
+        if st.button("تسجيل الخروج", use_container_width=True):
+            st.session_state.auth = False
+            st.rerun()
+
+    # قسم العمل
+    st.markdown(f"---")
+    with st.container():
+        c1, c2 = st.columns(2)
+        with c1:
+            prod = st.text_input("📦 نوع البضاعة الحالية")
+        with c2:
+            price = st.number_input("💰 السعر الكلي للقطعة", value=25000)
+
+    files = st.file_uploader("ارفع ملفات الإكسل الخاصة بك", type=['xlsx'], accept_multiple_files=True)
+
+    b1, b2 = st.columns(2)
+    if b1.button("🔄 بدء المعالجة والدمج", use_container_width=True, type="primary"):
+        if files:
+            st.session_state.data = process_and_merge(files, prod, price, client)
+            st.success(f"تم بنجاح! تم استخدام رمز الوصل: {client['order_prefix']}")
+        else:
+            st.error("يرجى رفع الملفات")
+    
+    if b2.button("🗑️ مسح الجلسة", use_container_width=True):
+        st.session_state.data = None
+        st.rerun()
+
+    if 'data' in st.session_state and st.session_state.data is not None:
+        df = st.session_state.data
+        st.divider()
         
-        if st.button("🔄 Process & Merge Files", use_container_width=True, type="primary"):
-            try:
-                merged_df = merge_excel_files(uploaded_files)
-                st.session_state.merged_df = merged_df
-                st.success("✅ Files merged successfully!")
-                
-                # Display preview
-                st.header("📊 Preview")
-                st.dataframe(merged_df.head(10), use_container_width=True)
-                
-            except Exception as e:
-                st.error(f"❌ Error processing files: {str(e)}")
-    
-    # Download section
-    if st.session_state.merged_df is not None:
-        st.header("💾 Download Merged File")
-        csv_buffer = io.BytesIO()
-        st.session_state.merged_df.to_excel(csv_buffer, index=False, engine='openpyxl')
-        csv_buffer.seek(0)
+        # إحصائيات مخصصة
+        s1, s2, s3 = st.columns(3)
+        s1.metric("عدد الطلبات الحقيقية", len(df))
+        s2.metric("إجمالي مبلغ الشحنة", f"{len(df)*price:,} د.ع")
+        s3.metric("رمز التتبع", client['order_prefix'])
+
+        st.dataframe(df, use_container_width=True)
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False)
         
         st.download_button(
-            label="⬇️ Download Merged Excel",
-            data=csv_buffer.getvalue(),
-            file_name="merged_receipts.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            label=f"📥 تحميل كشف {client['name']}",
+            data=output.getvalue(),
+            file_name=f"{client['name']}_orders.xlsx",
             use_container_width=True
         )
-
-# =============================================================================
-# EXCEL MERGING LOGIC
-# =============================================================================
-def merge_excel_files(files: List[io.BytesIO]) -> pd.DataFrame:
-    """Merge multiple Excel files with column mapping"""
-    
-    all_dataframes = []
-    
-    for file in files:
-        # Read all sheets and find the one with relevant columns
-        try:
-            xl_file = pd.ExcelFile(file)
-            df = None
-            
-            # Try to find the best sheet
-            for sheet_name in xl_file.sheet_names:
-                temp_df = pd.read_excel(file, sheet_name=sheet_name)
-                if any(col in temp_df.columns for col in ['الاسم', 'رقم الهاتف', 'المحافظه']):
-                    df = temp_df
-                    break
-            
-            if df is None:
-                # Fallback to first sheet
-                df = pd.read_excel(file, sheet_name=0)
-            
-            all_dataframes.append(df)
-            
-        except Exception as e:
-            st.warning(f"Could not process file: {str(e)}")
-            continue
-    
-    if not all_dataframes:
-        raise ValueError("No valid Excel files found")
-    
-    # Concatenate all dataframes
-    combined_df = pd.concat(all_dataframes, ignore_index=True)
-    
-    # Column mapping
-    column_mapping = {
-        'الاسم': 'اسم الزبون',
-        'رقم الهاتف': 'هاتف الزبون',
-        'المحافظه': 'المحافظة'
-    }
-    
-    # Map columns
-    mapped_df = combined_df.rename(columns=column_mapping)
-    
-    # Handle المنطقة column - check multiple possible sources
-    region_sources = ['المنطقه واقرب نقطة داله', 'نقطه داله', 'المنطقه']
-    region_col = None
-    
-    for source_col in region_sources:
-        if source_col in combined_df.columns:
-            mapped_df['المنطقة'] = combined_df[source_col]
-            region_col = source_col
-            break
-    
-    if region_col is None:
-        mapped_df['المنطقة'] = ''  # Empty if no region column found
-    
-    # Create final dataframe with exact required columns
-    required_columns = [
-        'رقم الوصل', 'اسم الزبون', 'هاتف الزبون', 'هاتف الزبون 2', 
-        'المحافظة', 'المنطقة', 'المبلغ الكلي', 'نوع البضاعة', 
-        'العدد', 'الملاحظات'
-    ]
-    
-    final_df = pd.DataFrame(columns=required_columns)
-    
-    # Add available data
-    for col in required_columns:
-        if col in mapped_df.columns:
-            final_df[col] = mapped_df[col]
-        elif col == 'العدد':
-            final_df[col] = 1  # Default value
-        else:
-            final_df[col] = ''  # Empty for missing columns
-    
-    # Ensure proper column order
-    final_df = final_df[required_columns]
-    
-    return final_df
-
-# =============================================================================
-# MAIN APPLICATION FLOW
-# =============================================================================
-def main():
-    st.set_page_config(
-        page_title="Excel Merger Tool",
-        page_icon="🔗",
-        layout="wide"
-    )
-    
-    # Custom CSS for professional look
-    st.markdown("""
-    <style>
-    .main-header {
-        font-size: 3rem;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 10px;
-        border-left: 5px solid #1f77b4;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    initialize_session_state()
-    
-    if not st.session_state.authenticated:
-        login_page()
-    else:
-        main_app()
-
-if __name__ == "__main__":
-    main()
