@@ -4,133 +4,109 @@ import io
 import re
 
 # ==========================================
-# 1. إعدادات الوصول والتحكم
+# 1. إعدادات الدخول
 # ==========================================
-USER_CREDENTIALS = {"shop_759": "759"}
-IS_SYSTEM_ACTIVE = True  # غيرها لـ False لتعطيل الحساب
+st.set_page_config(page_title="سيستم دمج الليدات الاحترافي", layout="wide")
 
-def process_lead_string(text):
-    """تفكيك جملة: المحافظة المنطقة عدد X بسعر Y"""
+if 'auth' not in st.session_state:
+    st.session_state.auth = False
+
+if not st.session_state.auth:
+    st.title("🔐 تسجيل الدخول")
+    u = st.text_input("اسم المستخدم")
+    p = st.text_input("كلمة المرور", type="password")
+    if st.button("دخول"):
+        if u == "shop_759" and p == "759":
+            st.session_state.auth = True
+            st.rerun()
+        else:
+            st.error("خطأ في البيانات")
+    st.stop()
+
+# ==========================================
+# 2. دالة تفكيك النص (المحافظة والمنطقة والعدد)
+# ==========================================
+def parse_lead_info(text):
     text = str(text).strip()
     parts = text.split()
-    
-    # 1. المحافظة (أول كلمة)
     province = parts[0] if len(parts) > 0 else "غير محدد"
     
-    # 2. العدد (الرقم بعد كلمة عدد)
     quantity = 1
-    qty_search = re.search(r'عدد\s*(\d+)', text)
-    if qty_search:
-        quantity = int(qty_search.group(1))
+    qty_match = re.search(r'عدد\s*(\d+)', text)
+    if qty_match:
+        quantity = int(qty_match.group(1))
     
-    # 3. المنطقة (ما بين المحافظة وكلمة عدد)
-    area = "غير محدد"
+    area = "المركز"
     try:
-        # قص النص بين أول كلمة وكلمة عدد
-        pattern = f"{re.escape(province)}(.*?)عدد"
-        match = re.search(pattern, text)
+        # البحث عن النص بين المحافظة وكلمة عدد
+        match = re.search(fr'{re.escape(province)}\s*(.*?)\s*عدد', text)
         if match:
             area = match.group(1).strip()
         else:
-            # إذا لم يجد كلمة عدد، يأخذ كل ما بعد المحافظة
             area = " ".join(parts[1:]) if len(parts) > 1 else "المركز"
-    except:
-        pass
+    except: pass
     
     return province, area, quantity
 
-def start_merging(files, p_name, p_price):
-    all_data = []
-    for f in files:
-        df = pd.read_excel(f)
-        
-        # --- تحديد الأعمدة ذكياً ---
-        col_phone = ""
-        col_name = ""
-        col_mixed = ""
-        
-        for col in df.columns:
-            col_str = str(col).lower()
-            # البحث عن عمود الهاتف (يحتوي على أرقام طويلة)
-            if any(x in col_str for x in ['phone', 'هاتف', 'موبايل', 'number']):
-                col_phone = col
-            # البحث عن عمود المحافظة/العنوان (الذي يحتوي على النص المختلط)
-            if any(x in col_str for x in ['المحافظة', 'المقدار', 'العنوان']):
-                col_mixed = col
-            # البحث عن اسم الزبون (نص طويل يستبعد أسماء الإعلانات)
-            if any(x in col_str for x in ['name', 'الاسم']) and not any(x in col_str for x in ['ad_', 'campaign', 'form']):
-                col_name = col
-
-        # معالجة كل صف في الملف المرفوع
-        for _, row in df.iterrows():
-            province, area, qty = process_lead_string(row[col_mixed])
-            
-            all_data.append({
-                'اسم الزبون': str(row[col_name]).strip() if col_name else "بدون اسم",
-                'هاتف الزبون': str(row[col_phone]).strip() if col_phone else "0",
-                'هاتف الزبون 2': "",
-                'المحافظة': province,
-                'المنطقة': area,
-                'المبلغ الكلي': p_price,
-                'نوع البضاعة والعدد المطلوب': f"{p_name} عدد {qty}",
-                'العدد': qty,
-                'الملاحظات': ""
-            })
-
-    # تحويل القائمة لجدول
-    final_df = pd.DataFrame(all_data)
-    
-    # تنظيف البيانات
-    # 1. حذف التكرارات بناءً على الهاتف
-    final_df.drop_duplicates(subset=['هاتف الزبون'], keep='first', inplace=True)
-    # 2. حذف الأسماء الوهمية
-    exclude = ['تست', 'تجربة', 'test', 'Test']
-    final_df = final_df[~final_df['اسم الزبون'].str.contains('|'.join(exclude), na=False)]
-    
-    return final_df
-
 # ==========================================
-# 2. واجهة المستخدم (Streamlit)
+# 3. واجهة العمل الرئيسية
 # ==========================================
-st.set_page_config(page_title="نظام الوصولات الذكي", layout="wide")
+st.title("📦 محول ملفات الليدات إلى وصولات")
 
-if 'login' not in st.session_state: st.session_state.login = False
+# رفع الملفات أولاً لكي نعرف أسماء الأعمدة
+uploaded_files = st.file_uploader("ارفع ملفات الإكسل (xlsx)", type=['xlsx'], accept_multiple_files=True)
 
-if not st.session_state.login:
-    st.title("🔐 تسجيل دخول المنصة")
-    user = st.text_input("اسم المستخدم")
-    passw = st.text_input("كلمة المرور", type="password")
-    if st.button("دخول"):
-        if user in USER_CREDENTIALS and USER_CREDENTIALS[user] == passw:
-            if IS_SYSTEM_ACTIVE:
-                st.session_state.login = True
-                st.rerun()
-            else: st.error("🚫 الحساب معطل حالياً")
-        else: st.error("❌ خطأ في البيانات")
-else:
-    st.title("📊 تجميع ومعالجة طلبات الليدات")
+if uploaded_files:
+    # قراءة أول ملف فقط لمعرفة أسماء الأعمدة
+    temp_df = pd.read_excel(uploaded_files[0])
+    all_columns = temp_df.columns.tolist()
+
+    st.info("💡 يرجى تحديد الأعمدة الصحيحة من ملفك المرفوع:")
     
-    with st.expander("🛠️ إعدادات البضاعة الحالية", expanded=True):
-        c1, c2 = st.columns(2)
-        p_name = c1.text_input("اسم المنتج (مثلاً: سيت صلاة)")
-        p_price = c2.number_input("سعر القطعة الواحد", value=25000)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        name_col = st.selectbox("اختر عمود (اسم الزبون):", all_columns, index=len(all_columns)-1)
+    with col2:
+        phone_col = st.selectbox("اختر عمود (رقم الهاتف):", all_columns, index=len(all_columns)-2)
+    with col3:
+        mixed_col = st.selectbox("اختر عمود (المحافظة والمنطقة):", all_columns, index=0)
 
-    uploaded_files = st.file_uploader("ارفع ملفات الإكسل", type=['xlsx'], accept_multiple_files=True)
+    st.divider()
+    
+    with st.expander("🛠️ إعدادات البضاعة والسعر", expanded=True):
+        ca, cb = st.columns(2)
+        p_name = ca.text_input("نوع البضاعة", value="اكتب اسم المنتج")
+        p_price = cb.number_input("السعر الثابت للقطعة", value=25000)
 
-    if st.button("🚀 معالجة ودمج الآن", use_container_width=True, type="primary"):
-        if uploaded_files:
-            result = start_merging(uploaded_files, p_name, p_price)
-            st.session_state.final_result = result
-            st.success("تمت المعالجة بنجاح!")
-        else: st.error("ارفع ملفات أولاً")
-
-    if 'final_result' in st.session_state:
-        df = st.session_state.final_result
-        st.divider()
-        st.dataframe(df, use_container_width=True)
+    if st.button("🚀 بدء المعالجة والدمج فوراً", use_container_width=True, type="primary"):
+        all_rows = []
+        for f in uploaded_files:
+            df = pd.read_excel(f)
+            for _, row in df.iterrows():
+                prov, area, qty = parse_lead_info(row[mixed_col])
+                all_rows.append({
+                    'اسم الزبون': str(row[name_col]).strip(),
+                    'هاتف الزبون': str(row[phone_col]).strip(),
+                    'هاتف الزبون 2': "",
+                    'المحافظة': prov,
+                    'المنطقة': area,
+                    'المبلغ الكلي': p_price,
+                    'نوع البضاعة والعدد المطلوب': f"{p_name} عدد {qty}",
+                    'العدد': qty,
+                    'الملاحظات': ""
+                })
         
-        # تصدير للإكسل
+        final_df = pd.DataFrame(all_rows)
+        
+        # حذف التكرارات والوهمي
+        final_df.drop_duplicates(subset=['هاتف الزبون'], keep='first', inplace=True)
+        final_df = final_df[~final_df['اسم الزبون'].str.contains('تست|تجربة|test', case=False, na=False)]
+        
+        st.success(f"✅ تم دمج {len(final_df)} طلب حقيقي بنجاح!")
+        st.dataframe(final_df, use_container_width=True)
+        
+        # التحميل
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False)
-        st.download_button("📥 تحميل الكشف النهائي الموحد", buffer.getvalue(), file_name="kashf_final.xlsx", use_container_width=True)
+            final_df.to_excel(writer, index=False)
+        st.download_button("📥 تحميل ملف الإكسل النهائي", buffer.getvalue(), file_name="final_orders.xlsx", use_container_width=True)
